@@ -96,6 +96,8 @@
     <param name="capabilities" value="$(arg capabilities)" />
     <param name="disable_capabilities" value="$(arg disable_capabilities)" />
 
+    <param name="allow_replanning" value="true" />
+
     <!-- do not copy dynamics information from /joint_states to internal robot monitoring
          default to false, because almost nothing in move_group relies on this information -->
     <param name="monitor_dynamics" value="false" />
