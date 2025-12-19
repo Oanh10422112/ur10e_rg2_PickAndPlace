@@ -130,7 +130,7 @@ roslaunch ur10e_rg2_moveit TrajectoryPlanner.launch
 
 ## Expected Outcome
 
-  <img src="https://github.com/Oanh10422112/ur10e_rg2_PickAndPlace/raw/master/Expected_outcome.gif?raw=true" width="800">
+  <img src="Expected_outcome.gif" width="100%">
 
 ## Project Structure
 ```
