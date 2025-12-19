@@ -42,6 +42,8 @@ def plan_trajectory(move_group, destination_pose, start_joint_angles):
     move_group.set_start_state(moveit_robot_state)
 
     move_group.set_pose_target(destination_pose)
+    #Grace time to plan
+    move_group.set_planning_time(5)
     plan = move_group.plan()
 
     if not plan:
@@ -72,6 +74,7 @@ def plan_pick_and_place(req):
 
     group_name = "arm"
     move_group = moveit_commander.MoveGroupCommander(group_name)
+    move_group.allow_replanning(True)
     # If no planning pipeline id is set, the default is OMPL
     # If no planner id is set, the default is RRTConnect: Fast and efficient for finding a feasible path.
 
