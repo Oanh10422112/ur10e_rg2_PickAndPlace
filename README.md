@@ -130,7 +130,7 @@ roslaunch ur10e_rg2_moveit TrajectoryPlanner.launch
 
 ## Expected Outcome
 
-  ![](Image/Expected_outcome.gif)
+  ![](Image/Expected_outcome.gif = 250x250)
 
 ## Project Structure
 ```
