@@ -11,66 +11,51 @@ using Unity.Robotics.ROSTCPConnector;
 using Unity.Robotics.ROSTCPConnector.ROSGeometry;
 using UnityEngine;
 
-// =========================================================================
-// 1. Serialisable Custom Class to hold the GameObject and its ID
-// =========================================================================
 [System.Serializable]
 public class Obstacle
 {
-    // The Unity GameObject to be published
     public GameObject GameObject;
-    // The unique string ID for the CollisionObjectMsg (e.g., "table", "printer", "cup")
     public string CollisionId; 
 }
 
 public class TrajectoryPlanner : MonoBehaviour
 {
-    // Hardcoded variables
+    // --- Constants ---
     const int k_NumRobotJoints = 6;
     const float k_JointAssignmentWait = 0.1f;
     const float k_PoseAssignmentWait = 0.5f;
 
-    // Variables required for ROS communication
-    [SerializeField]
-    private string m_TopicName = "/collision_object";
-    [SerializeField]
-    string m_RosServiceName = "ur10e_rg2_moveit";
-    public string RosServiceName { get => m_RosServiceName; set => m_RosServiceName = value; }
+    // --- ROS Settings ---
+    [Header("ROS Settings")]
+    [SerializeField] string m_TopicName = "/collision_object";
+    [SerializeField] string m_RosServiceName = "ur10e_rg2_moveit";
 
-    [SerializeField]
-    GameObject m_UR10e;
-    public GameObject UR10e { get => m_UR10e; set => m_UR10e = value; }
-    [SerializeField]
-    GameObject m_Target;
-    public GameObject Target { get => m_Target; set => m_Target = value; }
-    [SerializeField]
-    GameObject m_TargetPlacement;
-    public GameObject TargetPlacement { get => m_TargetPlacement; set => m_TargetPlacement = value; }
+    // --- References ---
+    [Header("Robot References")]
+    [SerializeField] public GameObject m_UR10e;
+    [SerializeField] public GameObject m_Target;
+    [SerializeField] public GameObject m_TargetPlacement;
     
-    [SerializeField]
-    GameObject m_GripperBase;
+    // Manual Joint List (Standardize this so you don't rely on auto-find)
+    [Header("Joints (Shoulder -> Wrist3)")]
+    public ArticulationBody[] m_JointArticulationBodies;
+
+    // --- Obstacles ---
+    [Header("Obstacles")]
+    [SerializeField] public GameObject m_Table;
+    [SerializeField] public GameObject m_Printer;
+    [SerializeField] public GameObject m_MovingObstacle; // The Snake Cube
     
-    [Header("Safety Bar Settings")]
-    [SerializeField] float m_Amplitude = 1.0f; 
-    [SerializeField] Vector3 m_MovementAxis = Vector3.forward;
+    [Header("Other Static Obstacles")]
+    public List<Obstacle> m_StaticObstacles = new List<Obstacle>();
+    
+    // --- Snake Settings ---
+    [Header("Snake Settings")]
+    [SerializeField] float m_ScanDuration = 4.0f;
+    [SerializeField] float m_ScanInterval = 0.5f;
+    private List<string> m_PublishedBarIds = new List<string>();
 
-    // =========================================================================
-    // 2. NEW: List for all obstacles (Table, Printer, etc.)
-    // Removed old fields: m_Table and m_Printer
-    // =========================================================================
-    [SerializeField]
-    public List<Obstacle> m_ObstaclesToPublish = new List<Obstacle>();
-
-
-    // Assures that the gripper is always positioned beside the m_Target cube before grasping.
-    readonly Quaternion m_PickOrientation = Quaternion.Euler(0, 180, 90);
-    readonly Vector3 m_PickPoseOffset = Vector3.left * 0.47f;
-    readonly Quaternion m_PlaceOrientation = Quaternion.Euler(0, 90, 180);
-    readonly Vector3 m_PlacePoseOffset = Vector3.up * 0.28f;
-
-    // Articulation Bodies for the Robot arm
-    ArticulationBody[] m_JointArticulationBodies;
-    // Articulation Bodies for the Gripper
+    // --- Gripper Joints ---
     ArticulationBody m_LeftInnerKnuckle;
     ArticulationBody m_RightInnerKnuckle;
     ArticulationBody m_LeftOuterKnuckle;
@@ -78,323 +63,259 @@ public class TrajectoryPlanner : MonoBehaviour
     ArticulationBody m_leftInnerFinger;
     ArticulationBody m_rightInnerFinger;
 
+    // --- The Working Offsets ---
+    readonly Quaternion m_PickOrientation = Quaternion.Euler(0, 180, 90);
+    readonly Vector3 m_PickPoseOffset = Vector3.left * 0.47f;
+    readonly Quaternion m_PlaceOrientation = Quaternion.Euler(0, 90, 180);
+    readonly Vector3 m_PlacePoseOffset = Vector3.up * 0.28f;
 
-    // ROS Connector
     ROSConnection m_Ros;
 
-    /// <summary>
-    ///       Find all robot joints in Awake() and add them to the jointArticulationBodies array.
-    ///       Find left and right finger joints and assign them to their respective articulation body objects.
-    /// </summary>
-    
     void Start()
     {
-        // Get ROS connection static instance
         m_Ros = ROSConnection.GetOrCreateInstance();
         m_Ros.RegisterRosService<MoverServiceRequest, MoverServiceResponse>(m_RosServiceName);
-        // Register the collision object publisher
         m_Ros.RegisterPublisher<CollisionObjectMsg>(m_TopicName);
+        m_PublishedBarIds = new List<string>();
 
-        m_JointArticulationBodies = new ArticulationBody[k_NumRobotJoints];
-
-        var linkName = string.Empty;
-        for (var i = 0; i < k_NumRobotJoints; i++)
-        {
-            linkName += SourceDestinationPublisher.LinkNames[i];
-            m_JointArticulationBodies[i] = m_UR10e.transform.Find(linkName).GetComponent<ArticulationBody>();
-        }
-
-        // Identify gripper joints
+        // Find Gripper Parts
         string gripperBasePath = "base_link/base_link_inertia/shoulder_link/upper_arm_link/forearm_link/wrist_1_link/wrist_2_link/wrist_3_link/onrobot_rg2_base_link";
-        m_LeftInnerKnuckle = m_UR10e.transform.Find(gripperBasePath + "/left_inner_knuckle").GetComponent<ArticulationBody>();
-        m_RightInnerKnuckle = m_UR10e.transform.Find(gripperBasePath + "/right_inner_knuckle").GetComponent<ArticulationBody>();
-        m_LeftOuterKnuckle = m_UR10e.transform.Find(gripperBasePath + "/left_outer_knuckle").GetComponent<ArticulationBody>();
-        m_RightOuterKnuckle = m_UR10e.transform.Find(gripperBasePath + "/right_outer_knuckle").GetComponent<ArticulationBody>();
-        m_leftInnerFinger = m_UR10e.transform.Find(gripperBasePath + "/left_outer_knuckle/left_inner_finger").GetComponent<ArticulationBody>();
-        m_rightInnerFinger = m_UR10e.transform.Find(gripperBasePath + "/right_outer_knuckle/right_inner_finger").GetComponent<ArticulationBody>();
-
-        if (!m_LeftInnerKnuckle || !m_RightInnerKnuckle || !m_LeftOuterKnuckle || !m_RightOuterKnuckle || !m_leftInnerFinger || !m_rightInnerFinger)
-        {
-            Debug.LogError("Some gripper articulation bodies are missing. Please check the hierarchy.");
-        }
-    }
-    
-    void CloseGripper()
-    {
-        float closeValue = 24f;
-
-        SetGripperPosition(closeValue);
-        
-    // PARENTING LOGIC: Make the target stick to the gripper
-    if (m_Target != null && m_GripperBase != null)
-    {
-        // Attach to the gripper base so it moves with the arm
-        m_Target.transform.SetParent(m_LeftOuterKnuckle.transform.parent); 
-        
-        // Optional: Disable physics so it doesn't jitter while being carried
-        if (m_Target.TryGetComponent<Rigidbody>(out Rigidbody rb))
-        {
-            rb.isKinematic = true;
-            rb.detectCollisions = false;
-        }
-    }
+        Transform baseT = m_UR10e.transform;
+        // Note: Using Transform.Find helper to avoid massive strings if possible, but keeping your path for safety
+        m_LeftInnerKnuckle = baseT.Find(gripperBasePath + "/left_inner_knuckle")?.GetComponent<ArticulationBody>();
+        m_RightInnerKnuckle = baseT.Find(gripperBasePath + "/right_inner_knuckle")?.GetComponent<ArticulationBody>();
+        m_LeftOuterKnuckle = baseT.Find(gripperBasePath + "/left_outer_knuckle")?.GetComponent<ArticulationBody>();
+        m_RightOuterKnuckle = baseT.Find(gripperBasePath + "/right_outer_knuckle")?.GetComponent<ArticulationBody>();
+        m_leftInnerFinger = baseT.Find(gripperBasePath + "/left_outer_knuckle/left_inner_finger")?.GetComponent<ArticulationBody>();
+        m_rightInnerFinger = baseT.Find(gripperBasePath + "/right_outer_knuckle/right_inner_finger")?.GetComponent<ArticulationBody>();
     }
 
-    void OpenGripper()
-    {
-        float openValue = 10f;
-
-        SetGripperPosition(openValue);
-        
-        // UNPARENTING LOGIC: Release the target
-    if (m_Target != null)
-    {
-        m_Target.transform.SetParent(null); // Detach from gripper
-        
-        // Optional: Re-enable physics so it stays where it was placed
-        if (m_Target.TryGetComponent<Rigidbody>(out Rigidbody rb))
-        {
-            rb.isKinematic = false;
-            rb.detectCollisions = true;
-        }
-    }
-    }
-
-    /// <summary>
-    ///       Get the current values of the robot's joint angles.
-    /// </summary>
-    /// <returns>Ur10eMoveitJoints</returns>
-    Ur10eMoveitJointsMsg CurrentJointConfig()
-    {
-        var joints = new Ur10eMoveitJointsMsg();
-
-        for (var i = 0; i < k_NumRobotJoints; i++)
-        {
-            joints.joints[i] = m_JointArticulationBodies[i].jointPosition[0];
-        }
-
-        return joints;
-    }
-
-    /// <summary>
-    ///       Create a new MoverServiceRequest with the current values of the robot's joint angles,
-    ///       the target cube's current position and rotation, and the targetPlacement position and rotation.
-    ///       Call the MoverService using the ROSConnection and if a trajectory is successfully planned,
-    ///       execute the trajectories in a coroutine.
-    /// </summary>
     public void PublishJoints()
     {
-        // =========================================================================
-        // 4. NEW: Loop through all obstacles and publish their mesh data
-        // Replaced PublishTableMesh() and PublishPrinterMesh() calls
-        // =========================================================================
-        foreach (Obstacle obs in m_ObstaclesToPublish)
+        // 1. Publish Static Obstacles (Table & Printer)
+        // We use the "Baked Transform" method so they are perfect in ROS.
+        PublishBakedMesh(m_Table, "table");
+        PublishBakedMesh(m_Printer, "3d_printer");
+        
+        foreach (Obstacle obs in m_StaticObstacles)
         {
             if (obs.GameObject != null)
             {
-                PublishObstacleMesh(obs.GameObject, obs.CollisionId);
+                PublishBakedMesh(obs.GameObject, obs.CollisionId);
             }
         }
-        
-        var request = new MoverServiceRequest();
+
+        // 2. Start Snake Scan
+        StartCoroutine(ScanAndGenerateObstacleBars());
+    }
+
+    IEnumerator ScanAndGenerateObstacleBars()
+    {
+        Debug.Log("Starting Scan...");
+        m_PublishedBarIds.Clear();
+
+        if (m_MovingObstacle != null)
+        {
+            Vector3 startPos = m_MovingObstacle.transform.position;
+            float elapsedTime = 0f;
+
+            while (elapsedTime < m_ScanDuration)
+            {
+                string barId = $"path_bar_{elapsedTime:F1}";
+                m_PublishedBarIds.Add(barId);
+                
+                // Publish the snake bar using the baked method too!
+                PublishBakedMesh(m_MovingObstacle, barId);
+                
+                yield return new WaitForSeconds(m_ScanInterval);
+                elapsedTime += m_ScanInterval;
+                
+                // Optional: Move obstacle here if simulating
+            }
+            m_MovingObstacle.transform.position = startPos;
+        }
+
+        Debug.Log("Scan Complete. Requesting Movement.");
+        SendMoverServiceRequest();
+    }
+
+    void SendMoverServiceRequest()
+    {
+        MoverServiceRequest request = new MoverServiceRequest();
         request.joints_input = CurrentJointConfig();
 
-        // Pick Pose
+        // Use the Working Offsets
         request.pick_pose = new PoseMsg
         {
             position = (m_Target.transform.position + m_PickPoseOffset).To<FLU>(),
             orientation = m_PickOrientation.To<FLU>()
         };
 
-        // Place Pose
         request.place_pose = new PoseMsg
         {
             position = (m_TargetPlacement.transform.position + m_PlacePoseOffset).To<FLU>(),
             orientation = m_PlaceOrientation.To<FLU>()
         };
 
+        Debug.Log($"[ROS] Requesting Plan. Pick Offset: {m_PickPoseOffset}");
         m_Ros.SendServiceMessage<MoverServiceResponse>(m_RosServiceName, request, TrajectoryResponse);
     }
 
     void TrajectoryResponse(MoverServiceResponse response)
     {
-        if (response.trajectories.Length > 0)
+        if (response.trajectories != null && response.trajectories.Length > 0)
         {
-            Debug.Log("Trajectory returned.");
+            Debug.Log("Trajectory returned. Executing...");
             StartCoroutine(ExecuteTrajectories(response));
         }
         else
         {
-            Debug.LogError("No trajectory returned from MoverService.");
+            Debug.LogError("No trajectory returned from MoveIt.");
         }
     }
 
-    /// <summary>
-    ///       Execute the returned trajectories from the MoverService. (omitted for brevity)
-    /// </summary>
-IEnumerator ExecuteTrajectories(MoverServiceResponse response)
-{
-    if (response.trajectories != null)
+    // --- TIME-SYNCED EXECUTION (Crucial for smooth movement) ---
+    IEnumerator ExecuteTrajectories(MoverServiceResponse response)
     {
-        for (var poseIndex = 0; poseIndex < response.trajectories.Length; poseIndex++)
+        if (response.trajectories != null)
         {
-            foreach (var t in response.trajectories[poseIndex].joint_trajectory.points)
+            for (var poseIndex = 0; poseIndex < response.trajectories.Length; poseIndex++)
             {
-                var jointPositions = t.positions;
-                var result = jointPositions.Select(r => (float)r * Mathf.Rad2Deg).ToArray();
-
-                for (var joint = 0; joint < m_JointArticulationBodies.Length; joint++)
+                // Iterate through every point in the plan
+                foreach (var t in response.trajectories[poseIndex].joint_trajectory.points)
                 {
-                    var joint1XDrive = m_JointArticulationBodies[joint].xDrive;
-                    joint1XDrive.target = result[joint];
-                    m_JointArticulationBodies[joint].xDrive = joint1XDrive;
+                    var jointPositions = t.positions;
+                    
+                    // Convert ROS (Rad) to Unity (Deg)
+                    // Note: If you still need the Joint Direction fix, add it here:
+                    // var result = jointPositions.Select((r, i) => (float)r * Mathf.Rad2Deg * m_JointDirection[i]).ToArray();
+                    var result = jointPositions.Select(r => (float)r * Mathf.Rad2Deg).ToArray();
+
+                    for (var joint = 0; joint < m_JointArticulationBodies.Length; joint++)
+                    {
+                        SetJointTargetStep(m_JointArticulationBodies[joint], result[joint]);
+                    }
+
+                    // --- NO TIME SYNC ---
+                    // Instead of calculating waitTime from ROS, we use a fixed fast update.
+                    // 0.1f = 10 FPS (Choppy)
+                    // 0.02f = 50 FPS (Smoother)
+                    yield return new WaitForSeconds(0.02f); 
                 }
-                yield return new WaitForSeconds(k_JointAssignmentWait);
+
+                // Small settle time between stages
+                yield return new WaitForSeconds(0.25f);
+
+                // Gripper Actions
+                if (poseIndex == (int)Poses.Grasp) CloseGripper();
+                if (poseIndex == (int)Poses.Place) OpenGripper();
+                
+                yield return new WaitForSeconds(0.5f);
             }
-
-            // --- GRIPPER CONTROL LOGIC ---
-
-            // 1. Close and Attach when finishing the Grasp trajectory
-            if (poseIndex == (int)Poses.Grasp)
-            {
-                CloseGripper(); 
-            }
-
-            // 2. Open and Detach ONLY when finishing the Place trajectory
-            if (poseIndex == (int)Poses.Place)
-            {
-                OpenGripper();
-            }
-
-            yield return new WaitForSeconds(k_PoseAssignmentWait);
         }
-
-        // REMOVE the OpenGripper() from here, as it's now handled inside the loop
     }
-}
+    // --- HELPER FUNCTIONS ---
 
-    enum Poses
+    // The "Magic" Function that fixes Obstacle Positions
+    void PublishBakedMesh(GameObject obj, string id)
     {
-        PreGrasp,
-        Grasp,
-        PickUp,
-        Place
-    }
-    
-    // =========================================================================
-    // 3. NEW: Generic function to replace PublishTableMesh() and PublishPrinterMesh()
-    // The old PublishTableMesh() and PublishPrinterMesh() functions are removed.
-    // =========================================================================
-    /// <summary>
-    /// Publishes the mesh of a given GameObject as a MoveIt! Collision Object.
-    /// </summary>
-    /// <param name="obstacleGameObject">The Unity GameObject representing the obstacle.</param>
-    /// <param name="collisionObjectId">The unique ID for the collision object (e.g., "table", "printer").</param>
-    void PublishObstacleMesh(GameObject obstacleGameObject, string collisionObjectId)
-    {
-        // Get the MeshFilter component
-        MeshFilter meshFilter = obstacleGameObject.GetComponent<MeshFilter>();
-        if (meshFilter == null)
-        {
-            Debug.LogError($"MeshFilter component not found on {collisionObjectId} GameObject.");
-            return;
-        }
+        MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
+        if (meshFilter == null) return;
 
-        // Retrieve the mesh, vertices, and triangles data
         Mesh mesh = meshFilter.mesh;
         Vector3[] vertices = mesh.vertices;
         int[] triangles = mesh.triangles;
-
-        // Validate mesh data
-        if (vertices == null || vertices.Length == 0 || triangles == null || triangles.Length == 0)
-        {
-            Debug.LogError($"Mesh data for {collisionObjectId} is invalid or empty.");
-            return;
-        }
-
-        // Prepare vertices and triangles for ROS messages
         List<PointMsg> points = new List<PointMsg>();
+
         foreach (Vector3 vertex in vertices)
         {
-            // Convert vertex to world space
-            Vector3 worldVertex = obstacleGameObject.transform.TransformPoint(vertex);
-
-            // =========================================================================
-            // CALCULATION: Stretch the "moving_cube" into a static bar
-            // =========================================================================
-            if (collisionObjectId == "moving_cube")
-            {
-                // Determine if this vertex is on the 'positive' or 'negative' side of the axis
-                float projection = Vector3.Dot(vertex, m_MovementAxis);
-                float stretch = projection > 0 ? m_Amplitude : -m_Amplitude;
-                
-                // Offset the world position to create the "Bar"
-                worldVertex += obstacleGameObject.transform.TransformDirection(m_MovementAxis) * stretch;
-            }
-            // Convert vertex to world space, then to FLU orientation and add to points list
-            var fluVertex = obstacleGameObject.transform.TransformPoint(vertex).To<FLU>();
+            // CRITICAL: Transform point to World Space before sending
+            // This 'bakes' the scale, rotation, and position into the vertex data
+            var fluVertex = obj.transform.TransformPoint(vertex).To<FLU>();
             points.Add(new PointMsg(fluVertex.x, fluVertex.y, fluVertex.z));
         }
 
+        // Triangles need to be flipped for ROS (Culling order)
         List<MeshTriangleMsg> triangleMsgs = new List<MeshTriangleMsg>();
         for (int i = 0; i < triangles.Length; i += 3)
         {
             triangleMsgs.Add(new MeshTriangleMsg
             {
-                vertex_indices = new uint[]
-                {
-                    (uint)triangles[i],
-                    (uint)triangles[i + 2], // Swap these two indices for winding order correction
-                    (uint)triangles[i + 1]
-                }
+                vertex_indices = new uint[] { (uint)triangles[i], (uint)triangles[i + 2], (uint)triangles[i + 1] }
             });
         }
 
-
-        // Create MeshMsg
-        MeshMsg meshMsg = new MeshMsg
-        {
-            vertices = points.ToArray(),
-            triangles = triangleMsgs.ToArray()
-        };
-
-        // PoseMsg: The mesh is published relative to the base_link frame at (0, 0, 0)
+        MeshMsg meshMsg = new MeshMsg { vertices = points.ToArray(), triangles = triangleMsgs.ToArray() };
+        
+        // Identity Pose (Because we baked the position into the vertices)
         PoseMsg pose = new PoseMsg
         {
-            position = new PointMsg(0.0, 0.0, 0.0),
-            orientation = new QuaternionMsg(0.0, 0.0, 0.0, 1.0)
+            position = new PointMsg(0,0,0),
+            orientation = new QuaternionMsg(0,0,0,1)
         };
 
-        // Create CollisionObjectMsg
         var collisionObject = new CollisionObjectMsg
         {
-            header = new HeaderMsg
-            {
-                frame_id = "base_link"
-            },
-            id = collisionObjectId, // <--- Dynamic ID
+            header = new HeaderMsg { frame_id = "base_link" },
+            id = id,
             operation = CollisionObjectMsg.ADD,
             mesh_poses = new PoseMsg[] { pose },
             meshes = new MeshMsg[] { meshMsg }
         };
-        
-        // 1. Create a quick "Delete" message for this specific ID
-	var removeObject = new CollisionObjectMsg {
-    	id = collisionObjectId,
-    	operation = CollisionObjectMsg.REMOVE 
-	};
 
-	// 2. Publish the delete, then immediately publish the new stretched ADD
-	m_Ros.Publish(m_TopicName, removeObject); 
-	m_Ros.Publish(m_TopicName, collisionObject);
-
-        // Publish the CollisionObjectMsg
-        m_Ros.Publish("/collision_object", collisionObject);
+        m_Ros.Publish(m_TopicName, collisionObject);
     }
 
+    // Handles X/Y/Z Drive automatically
+    void SetJointTargetStep(ArticulationBody body, float targetAngle)
+    {
+        if (body.twistLock == ArticulationDofLock.FreeMotion || body.twistLock == ArticulationDofLock.LimitedMotion)
+        {
+            var d = body.xDrive; d.target = targetAngle; body.xDrive = d;
+        }
+        else if (body.swingYLock == ArticulationDofLock.FreeMotion || body.swingYLock == ArticulationDofLock.LimitedMotion)
+        {
+            var d = body.yDrive; d.target = targetAngle; body.yDrive = d;
+        }
+        else if (body.swingZLock == ArticulationDofLock.FreeMotion || body.swingZLock == ArticulationDofLock.LimitedMotion)
+        {
+            var d = body.zDrive; d.target = targetAngle; body.zDrive = d;
+        }
+    }
+
+    Ur10eMoveitJointsMsg CurrentJointConfig()
+    {
+        var joints = new Ur10eMoveitJointsMsg();
+        for (var i = 0; i < k_NumRobotJoints; i++)
+            joints.joints[i] = m_JointArticulationBodies[i].jointPosition[0];
+        return joints;
+    }
+
+    // ... (Keep your CloseGripper, OpenGripper, SetGripperPosition from the working code) ...
+    void CloseGripper() { 
+    SetGripperPosition(24f); 
+    if(m_Target) { 
+    	Transform handBase = m_JointArticulationBodies[5].transform;
+    	m_Target.transform.SetParent(handBase);
+    	var rb = m_Target.GetComponent<Rigidbody>(); 
+    	if(rb) rb.isKinematic = true; 
+    	} 
+    }
+    void OpenGripper() { 
+    SetGripperPosition(10f); 
+    if(m_Target) { 
+    	m_Target.transform.SetParent(null); 
+    	var rb = m_Target.GetComponent<Rigidbody>(); 
+    	if(rb) rb.isKinematic = false; 
+    	} 
+    }
+    
     void SetGripperPosition(float position)
     {
-        ArticulationDrive drive = m_LeftInnerKnuckle.xDrive;
+        // (Paste your SetGripperPosition logic here from the working code)
+        // I am omitting it for brevity, but copy the one from your working script.
+        // It sets the xDrive targets for m_LeftInnerKnuckle, etc.
+         ArticulationDrive drive = m_LeftInnerKnuckle.xDrive;
         drive.target = -position;
         m_LeftInnerKnuckle.xDrive = drive;
 
@@ -418,4 +339,6 @@ IEnumerator ExecuteTrajectories(MoverServiceResponse response)
         drive.target = position;
         m_rightInnerFinger.xDrive = drive;
     }
+
+    enum Poses { PreGrasp, Grasp, PickUp, Place }
 }
