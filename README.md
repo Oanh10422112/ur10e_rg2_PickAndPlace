@@ -102,7 +102,7 @@ Ensure there are no errors. The ROS workspace is now ready to accept commands!
    
 7. Click at Publisher object in Hierarchy window, select "Add Component" in Inspector window, search for Trajectory Planner and add it. Delete any empty Script tab inside Inspector window if any
    
-   ![](Image/AddPlanner.jpeg)
+   ![](Image/Addplanner.jpeg)
 
    Drag each of ur10e_robot_rg2's component link to the elements from Joint Articulation Bodies inside Trajectory Planner in particular order.
    
