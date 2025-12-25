@@ -36,7 +36,7 @@ public class TrajectoryPlanner : MonoBehaviour
     [SerializeField] public GameObject m_Target;
     [SerializeField] public GameObject m_TargetPlacement;
     
-    // Manual Joint List (Standardize this so you don't rely on auto-find)
+    // Manual Joint List
     [Header("Joints (Shoulder -> Wrist3)")]
     public ArticulationBody[] m_JointArticulationBodies;
 
@@ -81,7 +81,7 @@ public class TrajectoryPlanner : MonoBehaviour
         // Find Gripper Parts
         string gripperBasePath = "base_link/base_link_inertia/shoulder_link/upper_arm_link/forearm_link/wrist_1_link/wrist_2_link/wrist_3_link/onrobot_rg2_base_link";
         Transform baseT = m_UR10e.transform;
-        // Note: Using Transform.Find helper to avoid massive strings if possible, but keeping your path for safety
+        // Note: Using Transform.Find helper
         m_LeftInnerKnuckle = baseT.Find(gripperBasePath + "/left_inner_knuckle")?.GetComponent<ArticulationBody>();
         m_RightInnerKnuckle = baseT.Find(gripperBasePath + "/right_inner_knuckle")?.GetComponent<ArticulationBody>();
         m_LeftOuterKnuckle = baseT.Find(gripperBasePath + "/left_outer_knuckle")?.GetComponent<ArticulationBody>();
@@ -187,7 +187,6 @@ public class TrajectoryPlanner : MonoBehaviour
                     var jointPositions = t.positions;
                     
                     // Convert ROS (Rad) to Unity (Deg)
-                    // Note: If you still need the Joint Direction fix, add it here:
                     // var result = jointPositions.Select((r, i) => (float)r * Mathf.Rad2Deg * m_JointDirection[i]).ToArray();
                     var result = jointPositions.Select(r => (float)r * Mathf.Rad2Deg).ToArray();
 
@@ -196,8 +195,6 @@ public class TrajectoryPlanner : MonoBehaviour
                         SetJointTargetStep(m_JointArticulationBodies[joint], result[joint]);
                     }
 
-                    // --- NO TIME SYNC ---
-                    // Instead of calculating waitTime from ROS, we use a fixed fast update.
                     // 0.1f = 10 FPS (Choppy)
                     // 0.02f = 50 FPS (Smoother)
                     yield return new WaitForSeconds(0.02f); 
@@ -214,9 +211,8 @@ public class TrajectoryPlanner : MonoBehaviour
             }
         }
     }
+    
     // --- HELPER FUNCTIONS ---
-
-    // The "Magic" Function that fixes Obstacle Positions
     void PublishBakedMesh(GameObject obj, string id)
     {
         MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
@@ -229,8 +225,6 @@ public class TrajectoryPlanner : MonoBehaviour
 
         foreach (Vector3 vertex in vertices)
         {
-            // CRITICAL: Transform point to World Space before sending
-            // This 'bakes' the scale, rotation, and position into the vertex data
             var fluVertex = obj.transform.TransformPoint(vertex).To<FLU>();
             points.Add(new PointMsg(fluVertex.x, fluVertex.y, fluVertex.z));
         }
@@ -247,7 +241,7 @@ public class TrajectoryPlanner : MonoBehaviour
 
         MeshMsg meshMsg = new MeshMsg { vertices = points.ToArray(), triangles = triangleMsgs.ToArray() };
         
-        // Identity Pose (Because we baked the position into the vertices)
+        // Identity Pose
         PoseMsg pose = new PoseMsg
         {
             position = new PointMsg(0,0,0),
@@ -271,15 +265,21 @@ public class TrajectoryPlanner : MonoBehaviour
     {
         if (body.twistLock == ArticulationDofLock.FreeMotion || body.twistLock == ArticulationDofLock.LimitedMotion)
         {
-            var d = body.xDrive; d.target = targetAngle; body.xDrive = d;
+            var d = body.xDrive;
+            d.target = targetAngle;
+            body.xDrive = d;
         }
         else if (body.swingYLock == ArticulationDofLock.FreeMotion || body.swingYLock == ArticulationDofLock.LimitedMotion)
         {
-            var d = body.yDrive; d.target = targetAngle; body.yDrive = d;
+            var d = body.yDrive;
+            d.target = targetAngle;
+            body.yDrive = d;
         }
         else if (body.swingZLock == ArticulationDofLock.FreeMotion || body.swingZLock == ArticulationDofLock.LimitedMotion)
         {
-            var d = body.zDrive; d.target = targetAngle; body.zDrive = d;
+            var d = body.zDrive;
+            d.target = targetAngle;
+            body.zDrive = d;
         }
     }
 
@@ -291,7 +291,6 @@ public class TrajectoryPlanner : MonoBehaviour
         return joints;
     }
 
-    // ... (Keep your CloseGripper, OpenGripper, SetGripperPosition from the working code) ...
     void CloseGripper() { 
     SetGripperPosition(24f); 
     if(m_Target) { 
@@ -312,9 +311,6 @@ public class TrajectoryPlanner : MonoBehaviour
     
     void SetGripperPosition(float position)
     {
-        // (Paste your SetGripperPosition logic here from the working code)
-        // I am omitting it for brevity, but copy the one from your working script.
-        // It sets the xDrive targets for m_LeftInnerKnuckle, etc.
          ArticulationDrive drive = m_LeftInnerKnuckle.xDrive;
         drive.target = -position;
         m_LeftInnerKnuckle.xDrive = drive;
