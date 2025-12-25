@@ -34,7 +34,7 @@ Ensure you have the following software installed:
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/Trung2204/ur10e_rg2_PickAndPlace.git
+git clone https://github.com/Oanh10422112/ur10e_rg2_PickAndPlace.git
 cd ur10e_rg2_PickAndPlace
 ```
 
@@ -88,7 +88,7 @@ Ensure there are no errors. The ROS workspace is now ready to accept commands!
 
    ![](Image/2_menu.png)
 
-   In the ROS Message Browser window, click `Browse` next to the ROS message path. Navigate to and select the ROS directory of this cloned repository (`Unity-Robotics-Hub/tutorials/pick_and_place/ROS/`). This window will populate with all msg and srv files found in this directory.
+   In the ROS Message Browser window, click `Browse` next to the ROS message path. Navigate to and select the ROS directory of this cloned repository (`ur10e_rg2_PickAndPlace/ROS/`). This window will populate with all msg and srv files found in this directory.
 
    ![](Image/2_browser.png)
 
@@ -99,8 +99,25 @@ Ensure there are no errors. The ROS workspace is now ready to accept commands!
    ![](Image/2_robottraj.png)
 
 6. Do the same for `ROS/src/moveit_msgs/msg/CollisionObject.msg` and `ROS/src/ur10e_rg2_moveit/msg/*` and `ROS/src/ur10e_rg2_moveit/srv/*`.
+   
+7. Click at Publisher object in Hierarchy window, select "Add Component" in Inspector window, search for Trajectory Planner and add it. Delete any empty Script tab inside Inspector window if any
+   
+   ![](Image/AddPlanner.png)
 
-5. Next, the ROS TCP connection needs to be created. Select `Robotics -> ROS Settings` from the top menu bar.
+   Drag each of ur10e_robot_rg2's component link to the elements from Joint Articulation Bodies inside Trajectory Planner in particular order.
+   
+   ![](Image/TPlanner.png)
+
+   Drag two static cubes from Hierarchy window to 2 elements inside Static Obstables
+   
+   ![](Image/StaticO.png)
+
+   Check if moving_cube Object has Oscillating Movement and Moving Obstacle Sync scripts inside Inspector window. If not avaiable, add them using "Add Component" 
+
+   ![](Image/MovingCube.png)
+
+
+8. Next, the ROS TCP connection needs to be created. Select `Robotics -> ROS Settings` from the top menu bar.
 
    In the ROS Settings window, the `ROS IP Address` should be the IP address of your ROS machine
 
