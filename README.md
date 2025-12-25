@@ -110,7 +110,7 @@ Ensure there are no errors. The ROS workspace is now ready to accept commands!
 
    Drag two static cubes from Hierarchy window to 2 elements inside Static Obstables
    
-   ![](Image/StaticO.jpeg)
+   ![](Image/Static0.jpeg)
 
    Check if moving_cube Object has Oscillating Movement and Moving Obstacle Sync scripts inside Inspector window. If not avaiable, add them using "Add Component" 
 
