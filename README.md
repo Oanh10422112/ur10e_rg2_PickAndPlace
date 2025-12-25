@@ -102,19 +102,19 @@ Ensure there are no errors. The ROS workspace is now ready to accept commands!
    
 7. Click at Publisher object in Hierarchy window, select "Add Component" in Inspector window, search for Trajectory Planner and add it. Delete any empty Script tab inside Inspector window if any
    
-   ![](Image/AddPlanner.png)
+   ![](Image/AddPlanner.jpeg)
 
    Drag each of ur10e_robot_rg2's component link to the elements from Joint Articulation Bodies inside Trajectory Planner in particular order.
    
-   ![](Image/TPlanner.png)
+   ![](Image/TPlanner.jpeg)
 
    Drag two static cubes from Hierarchy window to 2 elements inside Static Obstables
    
-   ![](Image/StaticO.png)
+   ![](Image/StaticO.jpeg)
 
    Check if moving_cube Object has Oscillating Movement and Moving Obstacle Sync scripts inside Inspector window. If not avaiable, add them using "Add Component" 
 
-   ![](Image/MovingCube.png)
+   ![](Image/MovingCube.jpeg)
 
 
 8. Next, the ROS TCP connection needs to be created. Select `Robotics -> ROS Settings` from the top menu bar.
