@@ -144,7 +144,6 @@ public class TrajectoryPlanner : MonoBehaviour
         MoverServiceRequest request = new MoverServiceRequest();
         request.joints_input = CurrentJointConfig();
 
-        // Use the Working Offsets
         request.pick_pose = new PoseMsg
         {
             position = (m_Target.transform.position + m_PickPoseOffset).To<FLU>(),
